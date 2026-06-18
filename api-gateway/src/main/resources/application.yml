@@ -1,0 +1,62 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        # ── User Service Routes ──────────────────────────────────────────────
+        - id: user-service-users
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/users/**
+
+        - id: user-service-resume
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/resume/**
+
+        # ── Job Service Routes ───────────────────────────────────────────────
+        - id: job-service-add-jobs
+          uri: ${JOB_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/add-jobs/**
+
+        - id: job-service-apply-job
+          uri: ${JOB_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/apply-job/**
+
+        # ── LinkedIn Service Routes ──────────────────────────────────────────
+        - id: linkedin-service
+          uri: ${LINKEDIN_SERVICE_URI:http://localhost:8084}
+          predicates:
+            - Path=/linkedin-jobs/**
+
+        # ── Naukri Service Routes ────────────────────────────────────────────
+        - id: naukri-service
+          uri: ${NAUKRI_SERVICE_URI:http://localhost:8085}
+          predicates:
+            - Path=/naukri-jobs/**
+
+        # ── AI Recommendation Service Routes ─────────────────────────────────
+        - id: ai-service
+          uri: ${AI_SERVICE_URI:http://localhost:8086}
+          predicates:
+            - Path=/aijobagent/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    gateway:
+      enabled: true
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    com.jobautomation: DEBUG

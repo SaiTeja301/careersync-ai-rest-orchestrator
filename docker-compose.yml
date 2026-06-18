@@ -1,0 +1,186 @@
+version: '3.8'
+
+services:
+  # ── DATABASE INSTANCES ──────────────────────────────────────────────────
+  user-db-mysql:
+    image: mysql:8.0
+    container_name: user-db-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:}
+      MYSQL_DATABASE: ${USER_DB_NAME:user_db}
+    volumes:
+      - user-db-data:/var/lib/mysql
+    networks:
+      - job-automation-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  job-db-mysql:
+    image: mysql:8.0
+    container_name: job-db-mysql
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:}
+      MYSQL_DATABASE: ${JOB_DB_NAME:job_db}
+    volumes:
+      - job-db-data:/var/lib/mysql
+    networks:
+      - job-automation-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-db-mysql:
+    image: mysql:8.0
+    container_name: ai-db-mysql
+    ports:
+      - "3309:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:}
+      MYSQL_DATABASE: ${AI_DB_NAME:ai_db}
+    volumes:
+      - ai-db-data:/var/lib/mysql
+    networks:
+      - job-automation-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── USER SERVICE ────────────────────────────────────────────────────────
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: user-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://user-db-mysql:3306/${USER_DB_NAME:user_db}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:}
+    depends_on:
+      user-db-mysql:
+        condition: service_healthy
+    networks:
+      - job-automation-network
+
+  # ── JOB SERVICE ─────────────────────────────────────────────────────────
+  job-service:
+    build:
+      context: ./job-service
+      dockerfile: Dockerfile
+    container_name: job-service
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://job-db-mysql:3306/${JOB_DB_NAME:job_db}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:}
+    depends_on:
+      job-db-mysql:
+        condition: service_healthy
+    networks:
+      - job-automation-network
+
+  # ── LINKEDIN AUTOMATION SERVICE ──────────────────────────────────────────
+  linkedin-service:
+    build:
+      context: ./linkedin-service
+      dockerfile: Dockerfile
+    container_name: linkedin-service
+    ports:
+      - "8084:8084"
+    environment:
+      - USER_SERVICE_BASE_URL=http://user-service:8082
+      - JOB_SERVICE_BASE_URL=http://job-service:8083
+      - SELENIUM_HEADLESS=true
+    depends_on:
+      - user-service
+      - job-service
+    networks:
+      - job-automation-network
+
+  # ── NAUKRI AUTOMATION SERVICE ───────────────────────────────────────────
+  naukri-service:
+    build:
+      context: ./naukri-service
+      dockerfile: Dockerfile
+    container_name: naukri-service
+    ports:
+      - "8085:8085"
+    environment:
+      - USER_SERVICE_BASE_URL=http://user-service:8082
+      - JOB_SERVICE_BASE_URL=http://job-service:8083
+      - SELENIUM_HEADLESS=true
+    depends_on:
+      - user-service
+      - job-service
+    networks:
+      - job-automation-network
+
+  # ── AI RECOMMENDATION SERVICE ───────────────────────────────────────────
+  ai-recommendation-service:
+    build:
+      context: ./ai-recommendation-service
+      dockerfile: Dockerfile
+    container_name: ai-recommendation-service
+    ports:
+      - "8086:8086"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://ai-db-mysql:3306/${AI_DB_NAME:ai_db}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:}
+      - USER_SERVICE_BASE_URL=http://user-service:8082
+      - JOB_SERVICE_BASE_URL=http://job-service:8083
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      ai-db-mysql:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      job-service:
+        condition: service_started
+    networks:
+      - job-automation-network
+
+  # ── API GATEWAY ──────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - USER_SERVICE_URI=http://user-service:8082
+      - JOB_SERVICE_URI=http://job-service:8083
+      - LINKEDIN_SERVICE_URI=http://linkedin-service:8084
+      - NAUKRI_SERVICE_URI=http://naukri-service:8085
+      - AI_SERVICE_URI=http://ai-recommendation-service:8086
+    depends_on:
+      - user-service
+      - job-service
+      - linkedin-service
+      - naukri-service
+      - ai-recommendation-service
+    networks:
+      - job-automation-network
+
+volumes:
+  user-db-data:
+  job-db-data:
+  ai-db-data:
+
+networks:
+  job-automation-network:
+    driver: bridge
